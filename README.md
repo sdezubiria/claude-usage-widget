@@ -171,6 +171,7 @@ Animations turn off if **Reduce motion** is on in macOS settings. To change the 
 |---|---|
 | **Use one browser only** | `--browser NAME` on the command line, or `CLAUDE_BROWSER=NAME`. Names: `chrome arc brave edge vivaldi chromium firefox zen librewolf floorp` |
 | **Fetch interval** | `python3 fetch_usage.py --loop 120` (seconds). Default is 300. |
+| **Name under the mascot** | `SIGNATURE` at the top of `index.jsx`. Set it to `""` to hide it. |
 | **Colors** | The `C` dict in `widget.py`, or the inline styles in `index.jsx`. |
 | **Manual values** | `python3 set_usage.py` asks for each value. Handy for testing the UI. |
 

@@ -17,6 +17,9 @@ export const className = `
   -webkit-user-select: none;
 `
 
+// Name shown under the mascot. Leave empty to hide it.
+const SIGNATURE = "Simón De Zubiría"
+
 // pixel robot — redrawn from Claude Code reference screenshot
 // 16×16 grid, color #E07050 matches the warm coral in the UI
 // Animation: steps() timing keeps the motion chunky like pixel art.
@@ -87,7 +90,7 @@ function Robot({ mood }) {
   var d = "#1C1E21"   // dark (eyes, mouth)
   var s = { imageRendering: "pixelated", display: "block", margin: "0 auto 8px", shapeRendering: "crispEdges" }
   return (
-    <svg className={"cc-bot mood-" + mood.name} width="64" height="64" viewBox="0 0 16 16" style={s}>
+    <svg className={"cc-bot mood-" + mood.name} width="144" height="108" viewBox="-1 -2 16 12" style={s}>
       <style>{robotCss}</style>
       {/* effects — only visible in hustle/panic (sweat) and sleep (z's) */}
       <rect className="sweat" x="12" y="1" width="1" height="1" fill="#7DD3FC" />
@@ -233,6 +236,20 @@ export function render({ output }) {
           <div style={{ color: mood.color, fontSize: "9px", letterSpacing: "1px" }}>
             {mood.label}
           </div>
+          {SIGNATURE && (
+            <div style={{
+              color: "#E8714A",
+              fontSize: "11px",
+              fontWeight: "bold",
+              letterSpacing: "1px",
+              marginTop: "12px",
+              paddingTop: "8px",
+              borderTop: "1px solid #252830",
+              alignSelf: "stretch",
+            }}>
+              <span style={{ color: "#4A5568", fontWeight: "normal" }}>by </span>{SIGNATURE}
+            </div>
+          )}
         </div>
 
         {/* right: usage bars */}
