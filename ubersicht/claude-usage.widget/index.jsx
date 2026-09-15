@@ -230,11 +230,8 @@ export function render({ output }) {
           textAlign: "center",
         }}>
           <Robot mood={mood} />
-          <div style={{ color: mood.color, fontSize: "9px", letterSpacing: "1px", marginBottom: "6px" }}>
+          <div style={{ color: mood.color, fontSize: "9px", letterSpacing: "1px" }}>
             {mood.label}
-          </div>
-          <div style={{ color: "#C8C9CA", fontSize: "10px", lineHeight: "1.8" }}>
-            <div>Claude {plan}</div>
           </div>
         </div>
 
@@ -275,8 +272,7 @@ export function render({ output }) {
         display: "flex",
         justifyContent: "space-between",
       }}>
-        <span>\u21bb updated {ago}</span>
-        <span>Refresh All Widgets in \u00dcbersicht menu</span>
+        <span>{"\u21bb updated " + ago}</span>
       </div>
     </div>
   )
