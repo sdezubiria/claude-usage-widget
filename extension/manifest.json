@@ -1,0 +1,18 @@
+{
+  "manifest_version": 2,
+  "name": "Claude Usage Widget",
+  "version": "1.0",
+  "description": "Sends Claude.ai usage data to the desktop widget every 5 minutes.",
+  "permissions": [
+    "alarms",
+    "https://claude.ai/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "icons": {
+    "48": "icons/icon.svg"
+  }
+}

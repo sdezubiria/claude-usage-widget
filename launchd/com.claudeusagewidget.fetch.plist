@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template: __PYTHON__ and __REPO__ are filled in by the install command in README.md.
+  Runs fetch_usage.py every 5 minutes, starts at login, restarts if it crashes.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claudeusagewidget.fetch</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__REPO__/fetch_usage.py</string>
+    <string>--loop</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__REPO__/fetch.log</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO__/fetch.log</string>
+</dict>
+</plist>
