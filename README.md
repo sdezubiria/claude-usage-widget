@@ -9,6 +9,8 @@ A macOS desktop widget that shows your [claude.ai](https://claude.ai) plan limit
 
 Bars turn **amber at 75%** and **red at 90%**. A pixel-art mascot reacts to your session usage: calm when you're idle, sweating at 75%, panicking at 90%, asleep once you hit the limit.
 
+Works with **Chrome, Arc, Brave, Edge, Vivaldi, Chromium, Firefox, Zen, LibreWolf and Floorp**. On any other browser, you paste your login key once.
+
 > **Unofficial.** This project is not affiliated with Anthropic. It reads the same internal endpoint the claude.ai settings page uses, which can change without notice.
 
 ---
@@ -16,23 +18,23 @@ Bars turn **amber at 75%** and **red at 90%**. A pixel-art mascot reacts to your
 ## How it works
 
 ```
-Zen Browser cookies ──┐
-                      ├─▶ fetch_usage.py ──▶ claude.ai/api/organizations/{id}/usage
-macOS Keychain ───────┘         │
-                                ▼
-                         usage_data.json
-                                │
-                 ┌──────────────┴──────────────┐
-                 ▼                             ▼
-      Übersicht widget (JSX)          widget.py (tkinter)
+Browser cookies (Chrome, Arc, Firefox, Zen, …) ──┐
+                                                ├─▶ fetch_usage.py ──▶ claude.ai usage API
+macOS Keychain (saved login) ───────────────────┘         │
+                                                          ▼
+                                                   usage_data.json
+                                                          │
+                                           ┌──────────────┴──────────────┐
+                                           ▼                             ▼
+                                Übersicht widget (JSX)          widget.py (tkinter)
 ```
 
-1. `fetch_usage.py` takes your claude.ai login cookie from Zen Browser, with a copy saved in the macOS Keychain as backup.
-2. Every 5 minutes it calls the usage API, using [`curl_cffi`](https://github.com/lexiforest/curl_cffi) to look like a real browser so Cloudflare lets it through.
-3. It writes the result to `usage_data.json`.
+1. The only thing `fetch_usage.py` needs is your claude.ai login cookie (`sessionKey`).
+2. It uses the copy saved in your macOS Keychain. When that login expires, it finds the most recently used claude.ai login in your browsers and saves that one instead. Firefox-family logins are picked up silently; Chromium logins are only read during `--setup`, because reading them shows a macOS password dialog.
+3. Every 5 minutes it calls the usage API, using [`curl_cffi`](https://github.com/lexiforest/curl_cffi) to look like a real browser so Cloudflare lets it through, and writes the result to `usage_data.json`.
 4. A widget reads that file and draws it. Use **Übersicht** (it sits on your desktop) or **widget.py** (a floating window, nothing else to install).
 
-Your cookies never leave your machine except to talk to claude.ai.
+Your login never leaves your machine except to talk to claude.ai.
 
 ---
 
@@ -42,7 +44,7 @@ Your cookies never leave your machine except to talk to claude.ai.
 |---|---|
 | **macOS** | Uses Keychain and launchd |
 | **Python 3.10+** | Check with `python3 --version` |
-| **[Zen Browser](https://zen-browser.app)** | Logged in to claude.ai. Other browsers: see [Configuration](#configuration) |
+| **A browser logged in to claude.ai** | See [Supported browsers](#supported-browsers) |
 | **[Übersicht](https://tracesof.net/uebersicht/)** | Optional, only for the desktop widget |
 
 ---
@@ -59,18 +61,27 @@ pip3 install -r requirements.txt
 
 ### 2. Connect your account
 
-Make sure you're logged in to claude.ai in Zen, then run:
+Log in to claude.ai in your browser, then run:
 
 ```bash
 python3 fetch_usage.py --setup
 ```
 
-This copies your session key into the Keychain and runs one test fetch. You should see something like:
+It lists the claude.ai logins it found, tests the most recent one, and saves it to your Keychain:
 
 ```
-session=55%  weekly=54%
-Setup complete.
+claude.ai logins found in your browsers:
+  chrome     Profile 4                    last used 2026-09-15 13:10
+  zen        yr00ybqc.Default (release)   last used 2026-09-12 09:02
+
+Testing…
+  session=55%  weekly=54%
+Setup complete. Saved to the macOS Keychain.
 ```
+
+If your login is in Chrome, Arc, Brave, Edge, Vivaldi or Chromium, macOS asks for your **login keychain password** so setup can read "*Browser* Safe Storage". This only happens during `--setup`. The background fetcher never shows this dialog.
+
+If no login is found (Safari, for example), setup asks you to paste your `sessionKey` instead. See [Other browsers](#other-browsers-safari-etc).
 
 ### 3. Keep the data fresh
 
@@ -107,6 +118,37 @@ Drag the window to move it, double-click to reload, right-click to quit.
 
 ---
 
+## Supported browsers
+
+| Family | Browsers | Notes |
+|---|---|---|
+| **Chromium** | Chrome, Arc, Brave, Edge, Vivaldi, Chromium | Cookies are encrypted with a key in your Keychain, so macOS asks for your password. Read only during `--setup`: when the login expires, log in again and re-run `--setup` |
+| **Firefox** | Firefox, Zen, LibreWolf, Floorp | Read directly with no prompts. Expired logins renew automatically |
+| **Other** | Safari, Orion, anything else | Paste your key once (below) |
+
+Every profile in every supported browser is checked, and the most recently used claude.ai login wins. To use only one browser:
+
+```bash
+python3 fetch_usage.py --setup --browser chrome
+```
+
+For the background fetcher, set `CLAUDE_BROWSER=chrome` instead. To see where logins were found without reading them:
+
+```bash
+python3 fetch_usage.py --browsers
+```
+
+### Other browsers (Safari, etc.)
+
+1. Open claude.ai and open the developer tools. In Safari, first turn on **Settings → Advanced → Show features for web developers**.
+2. Go to **Storage** (Safari) or **Application** (Chromium), then **Cookies → claude.ai**.
+3. Copy the value of `sessionKey`.
+4. Run `python3 fetch_usage.py --setup` and paste it when asked.
+
+Pasted keys can't be renewed automatically. When the widget says your session expired, repeat these steps.
+
+---
+
 ## The mascot
 
 The Übersicht widget has a pixel-art robot whose mood follows your **session** usage:
@@ -127,9 +169,7 @@ Animations turn off if **Reduce motion** is on in macOS settings. To change the 
 
 | What | How |
 |---|---|
-| **Zen profile** | Found automatically (the most recently used profile). To pick one, set `ZEN_COOKIES_DB=/path/to/cookies.sqlite`. |
-| **Other Firefox-based browsers** | Point `ZEN_COOKIES_DB` at that browser's `cookies.sqlite`. |
-| **Chrome / Safari** | Their cookies are encrypted, so they aren't read automatically. Copy `sessionKey` from DevTools → Application → Cookies and paste it when `--setup` asks. |
+| **Use one browser only** | `--browser NAME` on the command line, or `CLAUDE_BROWSER=NAME`. Names: `chrome arc brave edge vivaldi chromium firefox zen librewolf floorp` |
 | **Fetch interval** | `python3 fetch_usage.py --loop 120` (seconds). Default is 300. |
 | **Colors** | The `C` dict in `widget.py`, or the inline styles in `index.jsx`. |
 | **Manual values** | `python3 set_usage.py` asks for each value. Handy for testing the UI. |
@@ -161,8 +201,19 @@ Check the log:
 tail fetch.log
 ```
 
-- `Session expired`: log in to claude.ai in Zen again. The fetcher picks up the new cookie on its next run and saves it to the Keychain.
-- `HTTP Error 403` without a session message: Cloudflare blocked the request. Open claude.ai in Zen once to refresh the `cf_clearance` cookie.
+- `Session expired`: log in to claude.ai in your browser again. Firefox-family logins are picked up on the next run. For Chromium browsers, also run `python3 fetch_usage.py --setup`.
+- `Blocked by Cloudflare`: usually temporary. It clears up on a later run.
+- `No claude.ai login found`: run `python3 fetch_usage.py --browsers` to see what was detected. If your browser isn't listed, paste your key (see [Other browsers](#other-browsers-safari-etc)).
+
+**The "Chrome Safe Storage" password dialog rejects your password or keeps coming back**
+
+This dialog only appears during `--setup`, once per Chromium browser, and each approval covers that single read.
+
+If your Mac password is rejected, your *login keychain* password no longer matches your Mac password. That's common after a password reset. Click **Cancel**: setup skips that browser and moves on. Then either:
+- log in to claude.ai in a Firefox-family browser, or
+- paste your key (see [Other browsers](#other-browsers-safari-etc)).
+
+**Always Allow** would stop future prompts, but it also lets any program that uses the `security` tool read that browser's key.
 
 **The Übersicht widget is blank**
 
@@ -171,10 +222,6 @@ Open `http://127.0.0.1:41416` in a browser and check the console for build error
 **The Fable bar is missing**
 
 The row only appears when the API reports a Fable limit for your plan.
-
-**Keychain asks for permission on every fetch**
-
-In Keychain Access, find the `claude.ai` item for account `claude-usage-widget`, open **Access Control**, and allow `python3`.
 
 **Restart the background fetcher**
 
@@ -187,13 +234,14 @@ launchctl kickstart -k gui/$(id -u)/com.claudeusagewidget.fetch
 ## Project layout
 
 ```
-fetch_usage.py   fetches usage and writes usage_data.json
-widget.py        floating tkinter widget
-set_usage.py     enter values by hand
-start.sh         run the fetcher without launchd
-launchd/         login agent template
-ubersicht/       Übersicht desktop widget, with the mascot
-extension/       experimental Zen/Firefox extension (needs a local receiver on :8765, not included)
+fetch_usage.py      fetches usage and writes usage_data.json
+browser_cookies.py  finds claude.ai logins in installed browsers
+widget.py           floating tkinter widget
+set_usage.py        enter values by hand
+start.sh            run the fetcher without launchd
+launchd/            login agent template
+ubersicht/          Übersicht desktop widget, with the mascot
+extension/          experimental Zen/Firefox extension (needs a local receiver on :8765, not included)
 ```
 
 ---

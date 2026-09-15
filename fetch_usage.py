@@ -2,27 +2,31 @@
 """
 fetch_usage.py — fetches Claude usage and writes usage_data.json.
 
-Authentication strategy (standard macOS app pattern):
-  - Session key stored once in macOS Keychain (never re-entered)
-  - cf_clearance read from Zen Browser's cookie DB (refreshed automatically)
-  - Requests made with curl_cffi impersonating Firefox (bypasses Cloudflare)
+Authentication:
+  - Only the claude.ai `sessionKey` cookie is needed.
+  - A working key is kept in the macOS Keychain and tried first.
+  - When it's missing or expired, the most recently used claude.ai login is
+    taken from any supported browser (see browser_cookies.py) and saved back
+    to the Keychain.
+  - Requests go through curl_cffi with a real browser TLS fingerprint so
+    Cloudflare lets them through.
 
-First-time setup (auto-reads from Zen, stores in Keychain):
-  python3 fetch_usage.py --setup
-
-Normal use:
-  python3 fetch_usage.py           # fetch once
-  python3 fetch_usage.py --loop    # fetch every 5 min (background)
+Usage:
+  python3 fetch_usage.py --setup             # find a login and test it
+  python3 fetch_usage.py                     # fetch once
+  python3 fetch_usage.py --loop [seconds]    # fetch every 5 min (default)
+  python3 fetch_usage.py --browsers          # show where claude.ai logins were found
+  Add --browser chrome (or CLAUDE_BROWSER=chrome) to use only one browser.
 """
 
-import json, sys, time, sqlite3, shutil, tempfile, os, subprocess
+import json, os, sys, time, subprocess
 from datetime import datetime
 from pathlib import Path
 from curl_cffi import requests as cf_requests
-from curl_cffi.requests.exceptions import HTTPError
 
-DATA_FILE   = Path(__file__).parent / "usage_data.json"
-ZEN_PROFILES = Path.home() / "Library/Application Support/zen/Profiles"
+import browser_cookies
+
+DATA_FILE        = Path(__file__).parent / "usage_data.json"
 KEYCHAIN_ACCOUNT = "claude-usage-widget"
 KEYCHAIN_SERVICE = "claude.ai"
 
@@ -43,40 +47,6 @@ def keychain_read() -> str | None:
     )
     return r.stdout.strip() if r.returncode == 0 else None
 
-# ── Cookie helpers ────────────────────────────────────────────────────────────
-
-def find_zen_cookies_db() -> Path | None:
-    """ZEN_COOKIES_DB env var wins; otherwise the most recently used Zen profile."""
-    override = os.environ.get("ZEN_COOKIES_DB")
-    if override:
-        return Path(override).expanduser()
-    dbs = sorted(ZEN_PROFILES.glob("*/cookies.sqlite"),
-                 key=lambda p: p.stat().st_mtime, reverse=True)
-    return dbs[0] if dbs else None
-
-def read_zen_cookies(names: set) -> dict:
-    """Read specific cookies from Zen Browser's SQLite DB."""
-    db = find_zen_cookies_db()
-    if not db or not db.exists():
-        return {}
-    tmp = tempfile.mktemp(suffix=".sqlite")
-    shutil.copy2(db, tmp)
-    try:
-        con = sqlite3.connect(tmp)
-        rows = con.execute(
-            "SELECT name, value FROM moz_cookies WHERE host LIKE '%claude.ai'"
-        ).fetchall()
-        con.close()
-    finally:
-        os.unlink(tmp)
-    return {n: v for n, v in rows if n in names}
-
-def build_cookies(session_key: str) -> dict:
-    """Combine stored session key with fresh cf_clearance from Zen."""
-    cookies = read_zen_cookies({"cf_clearance", "anthropic-device-id"})
-    cookies["sessionKey"] = session_key
-    return cookies
-
 # ── API helpers ───────────────────────────────────────────────────────────────
 
 HEADERS = {
@@ -85,14 +55,21 @@ HEADERS = {
     "Origin":   "https://claude.ai",
 }
 
-def api_get(path: str, cookies: dict) -> dict:
+class AuthError(Exception):
+    pass
+
+def api_get(path: str, session_key: str):
     r = cf_requests.get(
         "https://claude.ai" + path,
-        cookies=cookies,
+        cookies={"sessionKey": session_key},
         headers=HEADERS,
-        impersonate="firefox",
+        impersonate="chrome",
         timeout=15,
     )
+    if r.status_code in (401, 403):
+        if "json" in r.headers.get("content-type", ""):
+            raise AuthError(f"HTTP {r.status_code}")
+        raise RuntimeError(f"Blocked by Cloudflare (HTTP {r.status_code}). Try again in a few minutes")
     r.raise_for_status()
     return r.json()
 
@@ -163,57 +140,91 @@ def parse(raw: dict, org: dict) -> dict:
         "updated": datetime.now().isoformat(),
     }
 
-# ── Main fetch ────────────────────────────────────────────────────────────────
+# ── Finding a working login ───────────────────────────────────────────────────
 
-def fetch() -> dict:
-    # claude.ai rotates sessionKey, so the Keychain copy goes stale. Try Zen's
-    # live cookie first, fall back to Keychain, and re-save whichever works.
-    kc_key  = keychain_read()
-    zen_key = read_zen_cookies({"sessionKey"}).get("sessionKey")
-    keys    = [k for k in dict.fromkeys([zen_key, kc_key]) if k]
-    if not keys:
-        raise RuntimeError("No session key found. Log in to claude.ai in Zen, or run --setup")
+def selected_browser() -> str | None:
+    if "--browser" in sys.argv:
+        i = sys.argv.index("--browser")
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1].lower()
+    return (os.environ.get("CLAUDE_BROWSER") or "").lower() or None
 
-    last_err = None
-    for key in keys:
-        cookies = build_cookies(key)
-        try:
-            orgs = api_get("/api/organizations", cookies)
-        except HTTPError as e:
-            last_err = e
+def try_key(key: str) -> list | None:
+    """The org list if this sessionKey is valid, else None."""
+    try:
+        return api_get("/api/organizations", key)
+    except AuthError:
+        return None
+
+def find_working_key(interactive: bool = False) -> tuple[str, list, str]:
+    """(sessionKey, orgs, source). Keychain first, then browsers, freshest login first.
+
+    Chromium logins can only be read through a macOS password dialog, so they are
+    tried only when `interactive` (--setup). The background loop never shows one.
+    """
+    kc_key = keychain_read()
+    if kc_key and (orgs := try_key(kc_key)):
+        return kc_key, orgs, "keychain"
+
+    tried, skipped = {kc_key}, 0
+    found = browser_cookies.find_sessions(selected_browser())
+    for s in found:
+        if s.needs_keychain and not interactive:
+            skipped += 1
             continue
-        if key != kc_key:
+        key = s.session_key()
+        if not key or key in tried:
+            continue
+        tried.add(key)
+        if orgs := try_key(key):
             keychain_store(key)
-        org    = orgs[0]
-        org_id = org.get("uuid") or org.get("id")
-        raw    = api_get(f"/api/organizations/{org_id}/usage", cookies)
-        return parse(raw, org)
+            return key, orgs, f"{s.browser} ({s.profile})"
 
-    raise RuntimeError(f"Session expired — log in to claude.ai in Zen again ({last_err})")
+    if not found:
+        raise RuntimeError("No claude.ai login found in any browser. "
+                           "Log in at claude.ai, or run --setup to paste a key")
+    if skipped:
+        raise RuntimeError("Session expired. Log in to claude.ai again, then run: python3 fetch_usage.py --setup")
+    raise RuntimeError("Session expired. Log in to claude.ai in your browser again")
 
-# ── Setup: auto-read from Zen Browser DB, store in Keychain ──────────────────
+def fetch(interactive: bool = False) -> dict:
+    key, orgs, source = find_working_key(interactive)
+    if source != "keychain":
+        print(f"  using claude.ai login from {source}")
+    org    = orgs[0]
+    org_id = org.get("uuid") or org.get("id")
+    return parse(api_get(f"/api/organizations/{org_id}/usage", key), org)
+
+# ── Setup and listing ─────────────────────────────────────────────────────────
+
+def list_browsers():
+    found = browser_cookies.find_sessions(selected_browser())
+    if not found:
+        print("  no claude.ai logins found")
+    for s in found:
+        when = datetime.fromtimestamp(s.last_used).strftime("%Y-%m-%d %H:%M")
+        print(f"  {s.browser:10} {s.profile:28} last used {when}")
 
 def setup():
-    print("Reading session key from Zen Browser…")
-    cookies = read_zen_cookies({"sessionKey"})
-    key = cookies.get("sessionKey")
-
-    if not key:
-        print("Could not find sessionKey in Zen Browser.")
-        print("Paste it manually (DevTools → Application → Cookies → claude.ai → sessionKey):")
+    print("claude.ai logins found in your browsers:")
+    list_browsers()
+    print("\nTesting… (Chromium browsers: macOS may ask for your login keychain password"
+          " to read '<Browser> Safe Storage'. Cancel it to skip that browser.)")
+    try:
+        data = fetch(interactive=True)
+    except RuntimeError as e:
+        print(f"\n{e}")
+        print("Paste your sessionKey instead (DevTools → Application/Storage → Cookies → claude.ai → sessionKey):")
         key = input("> ").strip()
-        if not key:
-            print("No key entered."); sys.exit(1)
+        if not key or not try_key(key):
+            print("That key didn't work."); sys.exit(1)
+        keychain_store(key)
+        data = fetch(interactive=True)
 
-    keychain_store(key)
-    print(f"Stored in macOS Keychain ✓")
-
-    print("Testing…")
-    data = fetch()
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=2)
     print(f"  session={data['session']['percent']}%  weekly={data['weekly']['percent']}%")
-    print("Setup complete. Run 'python3 fetch_usage.py --loop &' to keep data fresh.")
+    print("Setup complete. Saved to the macOS Keychain.")
 
 # ── Entry points ──────────────────────────────────────────────────────────────
 
@@ -239,13 +250,16 @@ def run_loop(interval=300):
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(line_buffering=True)  # so fetch.log updates live under launchd
-    if "--setup" in sys.argv:
-        setup()
-    elif "--loop" in sys.argv or "-l" in sys.argv:
-        interval = next((int(a) for a in sys.argv[1:] if a.isdigit()), 300)
-        run_loop(interval)
-    else:
-        try:
+    try:
+        if "--setup" in sys.argv:
+            setup()
+        elif "--browsers" in sys.argv:
+            list_browsers()
+        elif "--loop" in sys.argv or "-l" in sys.argv:
+            interval = next((int(a) for a in sys.argv[1:] if a.isdigit()), 300)
+            run_loop(interval)
+        else:
             run_once()
-        except RuntimeError as e:
-            print(f"✗ {e}")
+    except (RuntimeError, ValueError) as e:
+        print(f"✗ {e}")
+        sys.exit(1)
