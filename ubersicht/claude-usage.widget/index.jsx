@@ -87,7 +87,7 @@ function moodFor(pct) {
 function Robot({ mood }) {
   mood = mood || moodFor(0)
   var c = "#E07050"   // body colour
-  var d = "#1C1E21"   // dark (eyes, mouth)
+  var d = "#1C1E21"   // dark (eyes)
   var s = { imageRendering: "pixelated", display: "block", margin: "0 auto 8px", shapeRendering: "crispEdges" }
   return (
     <svg className={"cc-bot mood-" + mood.name} width="144" height="108" viewBox="-1 -2 16 12" style={s}>
@@ -106,8 +106,6 @@ function Robot({ mood }) {
           <rect x="4"  y="2"  width="1"  height="1" fill={d} />
           <rect x="9"  y="2"  width="1"  height="1" fill={d} />
         </g>
-        {/* mouth / expression line */}
-        <rect x="5"  y="7"  width="6"  height="1" fill={d} />
         {/* arms */}
         <rect className="armL" x="1"  y="3"  width="2"  height="2" fill={c} />
         <rect className="armR" x="11" y="3"  width="2"  height="2" fill={c} />

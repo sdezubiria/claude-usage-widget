@@ -1,0 +1,6 @@
+{
+  "name": "usage-widget",
+  "owner": { "name": "Simón De Zubiría" },
+  "description": "Claude usage widget and its Claude Code mod",
+  "plugins": [{ "name": "usage-meter", "source": "./mod" }]
+}

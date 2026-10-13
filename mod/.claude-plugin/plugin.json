@@ -1,0 +1,15 @@
+{
+  "name": "usage-meter",
+  "version": "0.1.0",
+  "author": { "name": "Simón De Zubiría" },
+  "description": "Shows your claude.ai plan limits (session, weekly, Fable, extra usage) in a pane, read from the usage widget's usage_data.json",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "dataFile": {
+      "type": "string",
+      "title": "usage_data.json path",
+      "description": "Absolute path to the usage_data.json that fetch_usage.py writes. Leave empty to use the one in the repo this mod ships in.",
+      "default": ""
+    }
+  }
+}

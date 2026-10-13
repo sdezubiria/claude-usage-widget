@@ -7,3 +7,6 @@ fetch.log
 __pycache__/
 *.pyc
 .DS_Store
+
+# types Claude Code writes beside the mod
+mod/.claude-plugin/types/

@@ -116,6 +116,17 @@ python3 widget.py
 
 Drag the window to move it, double-click to reload, right-click to quit.
 
+**Option C: inside Claude Code**
+
+The `mod/` folder is a Claude Code mod that draws the same widget, mascot included, in a pane beside the conversation, and keeps a one-line summary under the prompt. Install it from your clone so it reads this repo's `usage_data.json`:
+
+```bash
+claude plugin marketplace add "$PWD"
+claude plugin install usage-meter@usage-widget --scope user
+```
+
+It loads in every new session. `/usage-pane` reopens the pane after you close it. To read a `usage_data.json` somewhere else, set the `dataFile` option with `/plugin configure usage-meter@usage-widget`.
+
 ---
 
 ## Supported browsers
@@ -242,6 +253,7 @@ set_usage.py        enter values by hand
 start.sh            run the fetcher without launchd
 launchd/            login agent template
 ubersicht/          Übersicht desktop widget, with the mascot
+mod/                Claude Code mod: the widget as a pane in Claude Code
 extension/          experimental Zen/Firefox extension (needs a local receiver on :8765, not included)
 ```
 
