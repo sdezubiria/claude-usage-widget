@@ -1,6 +1,6 @@
 {
   "name": "usage-meter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": { "name": "Simón De Zubiría" },
   "description": "Shows your claude.ai plan limits (session, weekly, Fable, extra usage) in a pane, read from the usage widget's usage_data.json",
   "types": "./types/index.d.ts",

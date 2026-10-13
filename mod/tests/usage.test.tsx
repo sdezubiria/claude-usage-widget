@@ -9,10 +9,17 @@ const DATA = {
 }
 
 test('draws every limit from usage_data.json on each surface', async ($, on) => {
-  on('fs.read', () => ({ value: JSON.stringify(DATA) }))
+  const reads: string[] = []
+  on('fs.read', ($, e) => {
+    reads.push(e.path)
+    if (e.path.endsWith('known_marketplaces.json')) {
+      return { value: JSON.stringify({ mine: { source: { source: 'directory', path: '/clone' } } }) }
+    }
+    return { value: JSON.stringify(DATA) }
+  })
   on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }))
   on('env.get', () => ({ value: '/Users/someone' }))
-  on('fs.exists', ($, e) => ({ value: e.path === '/Users/someone/claude-usage-widget/usage_data.json' }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/clone/usage_data.json' }))
   on('clock.now', () => ({ value: 120_000 }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   const statuses: (string | undefined)[] = []
@@ -36,5 +43,6 @@ test('draws every limit from usage_data.json on each surface', async ($, on) => 
     expect(await ui.find({ type: 'Text', text: /\$3\.50 of \$12 monthly/ })).toBeDefined()
     await ui.unmount()
   }
+  expect(reads).toContain('/clone/usage_data.json')
   expect(statuses.at(-1)).toBe('Session 92% · Weekly 6% · Fable 0% · Extra $3.50/$12')
 })

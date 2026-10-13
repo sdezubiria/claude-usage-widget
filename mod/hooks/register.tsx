@@ -97,22 +97,42 @@ function robotSvg(mood: Mood) {
   )
 }
 
-// The setting when given. Otherwise the repo this mod ships in (mod/ sits beside
-// usage_data.json), which only holds when it runs from the clone, not a plugin
-// cache copy; then the README's default clone location.
+// Folders added with `claude plugin marketplace add <folder>`: installing from a
+// clone makes the clone one, and the session may run a cache copy of the mod.
+async function marketplaceFolders($: EngineInterface, home: string) {
+  try {
+    const known = JSON.parse(await $.fs.read(`${home}/.claude/plugins/known_marketplaces.json`)) as Record<
+      string,
+      { source?: { source?: string; path?: string } }
+    >
+    return Object.values(known)
+      .filter(m => m.source?.source === 'directory' && m.source.path)
+      .map(m => m.source!.path!)
+  } catch {
+    return []
+  }
+}
+
+// The setting when given. Otherwise the repo this mod ships in: beside the mod
+// when it runs from the clone, else the clone it was installed from; then the
+// README's default clone location.
 async function findDataFile($: EngineInterface, configured: string) {
   if (configured) return configured
   const home = await $.env.get('HOME')
   const candidates = [`${$.plugin.root}/../usage_data.json`]
-  if (home) candidates.push(`${home}/claude-usage-widget/usage_data.json`)
+  if (home) {
+    for (const folder of await marketplaceFolders($, home)) candidates.push(`${folder}/usage_data.json`)
+    candidates.push(`${home}/claude-usage-widget/usage_data.json`)
+  }
   for (const path of candidates) {
     if (await $.fs.exists(path)) return path
   }
   return candidates[candidates.length - 1] ?? candidates[0]!
 }
 
-// Reads the file into state and pins the one-line summary under the prompt.
-async function refresh($: EngineInterface, configured: string) {
+// Reads the file into state and pins the one-line summary under the prompt;
+// answers what went wrong, or null.
+async function refresh($: EngineInterface, configured: string): Promise<string | null> {
   const dataFile = await findDataFile($, configured)
   try {
     const [text, stat, now] = await Promise.all([
@@ -124,9 +144,11 @@ async function refresh($: EngineInterface, configured: string) {
     await update($, snapshot, () => ({ data, updatedMs: stat.mtimeMs, checkedMs: now }))
     await update($, problem, () => null)
     $.ui.status(statusLine(data))
+    return null
   } catch {
     await update($, problem, () => `Can't read ${dataFile}. Set its path with /plugin configure usage-meter@usage-widget.`)
     $.ui.status(undefined)
+    return `Can't read ${dataFile}`
   }
 }
 
@@ -146,10 +168,10 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'usage-pane' }, async $ => {
-    await refresh($, dataFile)
+    const failed = await refresh($, dataFile)
     await $.ui.open({ id: PANE, title: 'Usage' })
 
-    return { text: 'Usage pane opened.' }
+    return { text: failed ?? 'Usage pane opened.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
