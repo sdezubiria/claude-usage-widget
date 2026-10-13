@@ -97,10 +97,23 @@ function robotSvg(mood: Mood) {
   )
 }
 
+// The setting when given. Otherwise the repo this mod ships in (mod/ sits beside
+// usage_data.json), which only holds when it runs from the clone, not a plugin
+// cache copy; then the README's default clone location.
+async function findDataFile($: EngineInterface, configured: string) {
+  if (configured) return configured
+  const home = await $.env.get('HOME')
+  const candidates = [`${$.plugin.root}/../usage_data.json`]
+  if (home) candidates.push(`${home}/claude-usage-widget/usage_data.json`)
+  for (const path of candidates) {
+    if (await $.fs.exists(path)) return path
+  }
+  return candidates[candidates.length - 1] ?? candidates[0]!
+}
+
 // Reads the file into state and pins the one-line summary under the prompt.
-// Empty setting: the usage_data.json in the repo this mod ships in (mod/ sits beside it).
 async function refresh($: EngineInterface, configured: string) {
-  const dataFile = configured || `${$.plugin.root}/../usage_data.json`
+  const dataFile = await findDataFile($, configured)
   try {
     const [text, stat, now] = await Promise.all([
       $.fs.read(dataFile),
@@ -112,7 +125,7 @@ async function refresh($: EngineInterface, configured: string) {
     await update($, problem, () => null)
     $.ui.status(statusLine(data))
   } catch {
-    await update($, problem, () => `Can't read ${dataFile}`)
+    await update($, problem, () => `Can't read ${dataFile}. Set its path with /plugin configure usage-meter@usage-widget.`)
     $.ui.status(undefined)
   }
 }

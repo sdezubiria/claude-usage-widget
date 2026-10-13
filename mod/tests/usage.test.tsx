@@ -11,6 +11,8 @@ const DATA = {
 test('draws every limit from usage_data.json on each surface', async ($, on) => {
   on('fs.read', () => ({ value: JSON.stringify(DATA) }))
   on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }))
+  on('env.get', () => ({ value: '/Users/someone' }))
+  on('fs.exists', ($, e) => ({ value: e.path === '/Users/someone/claude-usage-widget/usage_data.json' }))
   on('clock.now', () => ({ value: 120_000 }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   const statuses: (string | undefined)[] = []
